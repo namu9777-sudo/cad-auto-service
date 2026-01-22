@@ -5,61 +5,58 @@ import cv2
 import numpy as np
 from PIL import Image
 
-st.title("🏗️ AI 도면 뼈대 정밀 추출기")
+st.title("🏗️ 도면 중심선(Center Line) 정밀 추출기")
 
 with st.sidebar:
-    wall_t = st.number_input("벽체 두께 (mm)", value=200)
-    # [새 기능] 선 인식 민감도 조절 (너무 많이 나오면 숫자를 높이세요)
-    line_sens = st.slider("선 인식 민감도", 50, 200, 120) 
+    st.header("⚙️ 분석 설정")
+    # 선이 너무 안 나오면 민감도를 낮추고, 너무 많이 나오면 높이세요.
+    sensitivity = st.slider("선 감지 민감도", 50, 200, 100)
+    min_len = st.slider("최소 선 길이 (mm 단위 환산)", 50, 500, 200)
 
-uploaded_file = st.file_uploader("스케치 사진 업로드", type=['jpg', 'png', 'jpeg'], key="clean_wall")
+uploaded_file = st.file_uploader("연습.jpg를 올려주세요", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file:
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, 1)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # 1. 이미지 읽기 및 노이즈 필터링
+    image = Image.open(uploaded_file).convert('RGB')
+    img_np = np.array(image)
+    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
     
-    # [핵심] 노이즈 제거를 위해 이미지를 살짝 뭉뚱그립니다.
+    # 가우시안 블러로 잔선(글자 등)을 흐리게 처리
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    thresh = cv2.threshold(blurred, 200, 255, cv2.THRESH_BINARY_INV)[1]
+    edges = cv2.Canny(blurred, 50, 150)
+    
+    st.image(edges, caption="AI가 인식한 골조 가이드 (흰색 선만 DXF로 변환됩니다)", width=600)
 
-    # [핵심] 주요 중심선만 추출 (짧은 선 무시)
-    lines = cv2.HoughLinesP(thresh, 1, np.pi/180, threshold=line_sens, 
-                            minLineLength=150, maxLineGap=30)
+    if st.button("🚀 중심선 DXF 생성"):
+        # 2. 직선 검출 (HoughLinesP)
+        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=sensitivity, 
+                                minLineLength=min_len/10, maxLineGap=40)
 
-    if st.button("🚀 깔끔한 도면으로 생성"):
         doc = ezdxf.new('R2010')
         msp = doc.modelspace()
-        doc.layers.new('CENTER', dxfattribs={'color': 1}) # 중심선(빨강)
-        doc.layers.new('WALL', dxfattribs={'color': 7})   # 벽체선(흰색)
+        doc.layers.new('CENTER_LINE', dxfattribs={'color': 1}) # 빨간색 중심선
 
         h_img, w_img = gray.shape
-        w_real, h_real = 12000, 9000 # 기준 스케일
+        w_real, h_real = 12000, 9000 # 연습.jpg 기준 전체 치수
 
         if lines is not None:
+            count = 0
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                sx, ex = (x1/w_img)*w_real, (x2/w_img)*w_real
-                sy, ey = (1-y1/h_img)*h_real, (1-y2/h_img)*h_real
+                
+                # 픽셀 좌표 -> 실제 mm 좌표 변환
+                sx, ex = (x1 / w_img) * w_real, (x2 / w_img) * w_real
+                sy, ey = (1 - y1 / h_img) * h_real, (1 - y2 / h_img) * h_real
+                
+                # 삐뚤어진 선 보정 (수직/수평 최적화)
+                if abs(sx - ex) < 150: ex = sx # 수직 보정
+                if abs(sy - ey) < 150: ey = sy # 수평 보정
 
-                # 수평/수직이 확실한 선만 벽체로 인정
-                is_horizontal = abs(sy - ey) < 100
-                is_vertical = abs(sx - ex) < 100
-
-                if is_horizontal or is_vertical:
-                    # 중심선 그리기
-                    msp.add_line((sx, sy), (ex, ey), dxfattribs={'layer': 'CENTER'})
-                    
-                    # 벽체 오프셋 (양옆으로)
-                    d = wall_t / 2
-                    if is_horizontal:
-                        msp.add_line((sx, sy+d), (ex, ey+d), dxfattribs={'layer': 'WALL'})
-                        msp.add_line((sx, sy-d), (ex, ey-d), dxfattribs={'layer': 'WALL'})
-                    else:
-                        msp.add_line((sx+d, sy), (ex+d, ey), dxfattribs={'layer': 'WALL'})
-                        msp.add_line((sx-d, sy), (ex-d, ey), dxfattribs={'layer': 'WALL'})
-
-            st.success("노이즈를 제거하고 주요 벽체를 추출했습니다!")
+                msp.add_line((sx, sy), (ex, ey), dxfattribs={'layer': 'CENTER_LINE'})
+                count += 1
+            
+            st.success(f"총 {count}개의 정제된 중심선을 추출했습니다!")
+            
             out = io.StringIO()
             doc.write(out)
-            st.download_button("📥 정돈된 DXF 다운로드", out.getvalue(), "clean_plan.dxf")
+            st.download_button("📥 중심선 DXF 다운로드", out.getvalue(), "center_lines.dxf")
