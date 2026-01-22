@@ -1,1 +1,5 @@
 ezdxf
+opencv-python-headless
+numpy
+EasyOCR
+Pillow
