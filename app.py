@@ -22,18 +22,18 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏗️ 건축가 설계 로또 분석기")
+st.title("🏗️ 로또 설계 분석기")
 st.caption("실제 최근 당첨 통계 및 황금 비율 필터링 적용")
 
 # [핵심] 최근 10회차 실제 많이 나온 번호 자동 리스트 (직접 업데이트 가능 영역)
 # 건축가님, 이 숫자들만 매주 바꿔주시면 AI가 알아서 조합합니다!
-recent_hot = [1, 6, 14, 23, 31, 34, 38, 40, 44, 45] # 최근 다수 출현
-recent_cold = [2, 5, 9, 12, 17, 21, 26, 28, 33, 42] # 최근 미출현
+recent_hot = [1, 3, 4, 8, 10, 16, 17, 22, 23, 24, 26, 27, 30, 31, 38, 41, 42, 44, 45] # 최근 다수 출현
+recent_cold = [11, 13, 14, 15, 19, 34] # 최근 미출현
 
 def generate_architect_logic():
     while True:
-        # 핫에서 2개, 콜드에서 2개, 완전 랜덤에서 2개 조합
-        base = random.sample(recent_hot, 2) + random.sample(recent_cold, 2) + random.sample(range(1, 46), 2)
+        # 핫에서 3개, 콜드에서 1개, 완전 랜덤에서 2개 조합
+        base = random.sample(recent_hot, 3) + random.sample(recent_cold, 1) + random.sample(range(1, 46), 2)
         res = sorted(list(set(base)))
         if len(res) != 6: continue
         
@@ -45,7 +45,7 @@ def generate_architect_logic():
 
 game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
 
-if st.button("🎰 행운의 도면 설계 시작"):
+if st.button("🎰 행운의 인생 설계 시작"):
     for i in range(game_count):
         nums, oc, ts = generate_architect_logic()
         
