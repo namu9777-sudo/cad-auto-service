@@ -1,54 +1,56 @@
 import streamlit as st
 import random
-import time
 
-st.set_page_config(page_title="스마트 로또 설계자", page_icon="📐")
+# 화면 여백을 최소화하여 블로그 삽입에 최적화
+st.set_page_config(page_title="로또 설계자", layout="centered")
 
-st.title("📐 건축가 설계: 스마트 로또 추첨기")
-st.write("단순 무작위가 아닌, 통계적 필터링을 거친 번호 조합입니다.")
+# CSS를 사용하여 글씨 크기와 상단 여백 조절
+st.markdown("""
+    <style>
+    .main { padding-top: 0rem; }
+    h1 { font-size: 1.8rem !important; color: #2E4053; }
+    h3 { font-size: 1.2rem !important; }
+    .stButton>button { width: 100%; border-radius: 10px; height: 3rem; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 1. 가상의 핫/콜드 데이터 (나중에 실제 데이터와 연동 가능)
-hot_numbers = [1, 14, 27, 34, 45, 11, 23, 5, 18, 39] # 최근 자주 나온 번호
-cold_numbers = [2, 9, 16, 22, 31, 40, 3, 10, 25, 44] # 최근 안 나온 번호
+st.title("📐 스마트 로또 설계기")
+st.caption("통계적 필터링(홀짝/합계)이 적용된 건축가 전용 조합")
 
-def generate_smart_nums():
+# 필터링 로직 (건축가님의 핫앤콜드 반영)
+hot_nums = [1, 14, 27, 34, 45, 11, 23, 5, 18, 39]
+cold_nums = [2, 9, 16, 22, 31, 40, 3, 10, 25, 44]
+
+def get_balanced_nums():
     while True:
-        # 핫 번호에서 2개, 콜드에서 1개, 나머지는 랜덤으로 섞기
-        selection = random.sample(hot_numbers, 2) + \
-                    random.sample(cold_numbers, 1) + \
-                    random.sample(range(1, 46), 3)
+        sample = random.sample(hot_nums, 2) + random.sample(cold_numbers, 1) + random.sample(range(1, 46), 3)
+        res = sorted(list(set(sample)))
+        if len(res) != 6: continue
         
-        nums = sorted(list(set(selection))) # 중복 제거 및 정렬
-        
-        if len(nums) != 6: continue # 중복 발생 시 재추출
-        
-        # [필터링 1] 홀짝 비율 분석 (3:3, 2:4, 4:2만 허용)
-        odd_c = len([n for n in nums if n % 2 != 0])
-        
-        # [필터링 2] 번호 총합 분석 (100 ~ 175 사이의 황금 영역)
-        total_sum = sum(nums)
-        
-        if odd_c in [2, 3, 4] and 100 <= total_sum <= 175:
-            return nums, odd_c, total_sum
+        odd_c = len([n for n in res if n % 2 != 0])
+        total_s = sum(res)
+        # 통계적 우세 지역: 홀짝 2:4~4:2, 합계 100~175
+        if odd_c in [2, 3, 4] and 100 <= total_s <= 175:
+            return res, odd_c, total_s
 
-# 메인 UI
-with st.sidebar:
-    st.header("⚙️ 분석 설정")
-    num_games = st.slider("생성할 게임 수", 1, 10, 5)
-    st.info("현재 '핫앤콜드'와 '홀짝 비율' 필터가 활성화되어 있습니다.")
+# 슬라이더 대신 깔끔한 선택박스 사용
+game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
 
-if st.button("🚀 데이터 분석 기반 번호 추출"):
-    for i in range(num_games):
-        nums, odd_c, t_sum = generate_smart_nums()
+if st.button("🚀 행운의 조합 설계 시작"):
+    st.divider()
+    for i in range(game_count):
+        nums, oc, ts = get_balanced_nums()
         
-        with st.expander(f"📍 {i+1}번째 행운의 조합 (분석 완료)", expanded=True):
-            cols = st.columns(6)
-            for idx, n in enumerate(nums):
-                # 번호대별 색상 입히기
-                color = "orange" if n <= 10 else "blue" if n <= 20 else "red" if n <= 30 else "gray" if n <= 40 else "green"
-                cols[idx].markdown(f"### :{color}[{n}]")
-            
-            # 분석 근거 노출 (사용자 신뢰도 향상)
-            st.caption(f"📊 분석 리포트: 홀짝비율({odd_c}:{6-odd_c}) | 번호총합({t_sum}) | 핫앤콜드 포함")
+        # 번호들을 한 줄에 깔끔하게 표시
+        cols = st.columns(6)
+        for idx, n in enumerate(nums):
+            color = "#FFD700" if n <= 10 else "#1E90FF" if n <= 20 else "#FF4500" if n <= 30 else "#808080" if n <= 40 else "#32CD32"
+            cols[idx].markdown(f"""
+                <div style="background-color:{color}; color:white; border-radius:50%; 
+                width:35px; height:35px; display:flex; align-items:center; justify-content:center; 
+                font-weight:bold; font-size:14px; margin:auto;">{n}</div>
+                """, unsafe_allow_html=True)
+        st.caption(f"분석: 홀짝 {oc}:{6-oc} / 합계 {ts}")
+        st.write("") 
 
-    st.balloons()
+    st.toast("행운의 번호가 설계되었습니다!")
