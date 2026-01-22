@@ -1,5 +1,5 @@
 ezdxf
+streamlit
 opencv-python-headless
 numpy
-EasyOCR
-Pillow
+easyocr
