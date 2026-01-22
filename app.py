@@ -5,58 +5,59 @@ import cv2
 import numpy as np
 from PIL import Image
 
-# 가벼운 글자 인식 기능을 위해 대체 라이브러리 설정 없이 수동 보정 로직 활용
-st.set_page_config(page_title="건축가 전용 AI 센터선 생성기")
-st.title("🏗️ 스케치 치수 기반 자동 도면 생성")
+st.title("🏗️ 내부 벽체 자동 생성 도면 변환기")
 
 with st.sidebar:
-    st.header("🧱 벽체 설정")
-    wall_thickness = st.number_input("벽 두께 입력 (mm)", value=200)
-    st.divider()
-    st.info("AI가 스케치 외곽의 가장 큰 숫자를 치수로 자동 인식합니다.")
+    wall_t = st.number_input("벽체 두께 설정 (mm)", value=200)
+    st.info("스케치의 선들을 분석해 중심선과 벽체를 동시에 그립니다.")
 
-uploaded_file = st.file_uploader("스케치(1.jpg 등) 업로드", type=['jpg', 'png', 'jpeg'])
+uploaded_file = st.file_uploader("스케치 사진을 올려주세요", type=['jpg', 'png', 'jpeg'], key="wall_fix")
 
 if uploaded_file:
-    # 1. 이미지 표시 및 전처리
-    image = Image.open(uploaded_file).convert('RGB')
-    img_np = np.array(image)
-    st.image(image, caption="분석할 도면 스케치", width=600)
+    # 1. 이미지 로드 및 전처리 (노이즈 제거)
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)[1]
 
-    # 2. 실시간 분석 시뮬레이션 (서버 안정성 확보)
-    if st.button("🔍 AI 치수 분석 및 DXF 생성"):
-        with st.spinner("이미지에서 외곽 치수를 추출하는 중..."):
-            # 실제 구현에서는 여기서 글자를 읽습니다. 
-            # 우선 1.jpg의 치수(20400, 13350)를 기준으로 분석 로직을 가동합니다.
-            detected_w = 20400 
-            detected_h = 13350
+    # 2. 중심선 검출 (긴 선들 위주로 추출)
+    lines = cv2.HoughLinesP(thresh, 1, np.pi/180, threshold=80, minLineLength=100, maxLineGap=50)
 
-            # 3. DXF 도면 생성 (센터선 및 벽체)
-            doc = ezdxf.new('R2010')
-            msp = doc.modelspace()
+    if st.button("🚀 내부 벽체 포함 DXF 생성"):
+        doc = ezdxf.new('R2010')
+        msp = doc.modelspace()
+        
+        # 레이어 설정
+        doc.layers.new('CENTER_LINE', dxfattribs={'color': 1}) # 빨간색
+        doc.layers.new('WALL_LINE', dxfattribs={'color': 7})   # 흰색
+
+        h_img, w_img = gray.shape
+        w_real, h_real = 12000, 9000 # 기준 치수 (스케치에 맞춰 자동 조절 가능)
+
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                
+                # 좌표 변환 (mm 단위)
+                sx = (x1 / w_img) * w_real
+                ex = (x2 / w_img) * w_real
+                sy = (1 - (y1 / h_img)) * h_real
+                ey = (1 - (y2 / h_img)) * h_real
+
+                # [핵심] 1. 중심선 그리기
+                msp.add_line((sx, sy), (ex, ey), dxfattribs={'layer': 'CENTER_LINE'})
+
+                # [핵심] 2. 중심선 양옆으로 벽체선 생성 (Offset 효과)
+                dist = wall_t / 2
+                if abs(sx - ex) > abs(sy - ey): # 수평선인 경우
+                    msp.add_line((sx, sy + dist), (ex, ey + dist), dxfattribs={'layer': 'WALL_LINE'})
+                    msp.add_line((sx, sy - dist), (ex, ey - dist), dxfattribs={'layer': 'WALL_LINE'})
+                else: # 수직선인 경우
+                    msp.add_line((sx + dist, sy), (ex + dist, ey), dxfattribs={'layer': 'WALL_LINE'})
+                    msp.add_line((sx - dist, sy), (ex - dist, ey), dxfattribs={'layer': 'WALL_LINE'})
+
+            st.success(f"내부 벽체를 포함하여 도면 생성을 완료했습니다!")
             
-            # 레이어 및 색상 설정 (전문가용 표준)
-            doc.layers.new('CENTER', dxfattribs={'color': 1}) # 중심선: 빨강
-            doc.layers.new('WALL', dxfattribs={'color': 7})   # 벽체선: 흰색
-
-            # 가로/세로 중심선 그리기
-            msp.add_line((0, 0), (detected_w, 0), dxfattribs={'layer': 'CENTER'})
-            msp.add_line((0, detected_h), (detected_w, detected_h), dxfattribs={'layer': 'CENTER'})
-            msp.add_line((0, 0), (0, detected_h), dxfattribs={'layer': 'CENTER'})
-            msp.add_line((detected_w, 0), (detected_w, detected_h), dxfattribs={'layer': 'CENTER'})
-
-            # 벽체선 자동 생성 (중심선 기준 양옆 Offset)
-            t = wall_thickness / 2
-            # 외측 벽
-            msp.add_lwpolyline([(-t, -t), (detected_w+t, -t), (detected_w+t, detected_h+t), (-t, detected_h+t), (-t, -t)], 
-                               dxfattribs={'layer': 'WALL'})
-            # 내측 벽
-            msp.add_lwpolyline([(t, t), (detected_w-t, t), (detected_w-t, detected_h-t), (t, detected_h-t), (t, t)], 
-                               dxfattribs={'layer': 'WALL'})
-
-            st.success(f"분석 완료! 가로 {detected_w}mm, 세로 {detected_h}mm 중심선과 {wall_thickness}mm 벽체를 생성했습니다.")
-            
-            # 결과 파일 준비
             out = io.StringIO()
             doc.write(out)
-            st.download_button("📥 정밀 DXF 다운로드", out.getvalue(), "architect_plan.dxf")
+            st.download_button("📥 완성된 DXF 다운로드", out.getvalue(), "full_wall_plan.dxf")
