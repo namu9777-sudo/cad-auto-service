@@ -1,4 +1,2 @@
-easyocr
-opencv-python-headless
-ezdxf
 streamlit
+pandas
