@@ -5,58 +5,64 @@ import cv2
 import numpy as np
 from PIL import Image
 
-st.title("🏗️ 도면 중심선(Center Line) 정밀 추출기")
+st.title("🏗️ 실무형 중심선 추출 및 벽체 생성기")
 
+# 1. 오직 벽체 두께만 설정
 with st.sidebar:
-    st.header("⚙️ 분석 설정")
-    # 선이 너무 안 나오면 민감도를 낮추고, 너무 많이 나오면 높이세요.
-    sensitivity = st.slider("선 감지 민감도", 50, 200, 100)
-    min_len = st.slider("최소 선 길이 (mm 단위 환산)", 50, 500, 200)
+    wall_t = st.number_input("벽체 두께 (mm)", value=200)
+    st.info("AI가 긴 벽체 중심선만 추출하고, 치수선 등 짧은 선은 자동으로 제거합니다.")
 
 uploaded_file = st.file_uploader("연습.jpg를 올려주세요", type=['jpg', 'png', 'jpeg'])
 
 if uploaded_file:
-    # 1. 이미지 읽기 및 노이즈 필터링
-    image = Image.open(uploaded_file).convert('RGB')
-    img_np = np.array(image)
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # 가우시안 블러로 잔선(글자 등)을 흐리게 처리
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    edges = cv2.Canny(blurred, 50, 150)
-    
-    st.image(edges, caption="AI가 인식한 골조 가이드 (흰색 선만 DXF로 변환됩니다)", width=600)
+    # 노이즈 및 자잘한 선 제거를 위한 강력한 전처리
+    blurred = cv2.medianBlur(gray, 5) 
+    thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2)
 
-    if st.button("🚀 중심선 DXF 생성"):
-        # 2. 직선 검출 (HoughLinesP)
-        lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=sensitivity, 
-                                minLineLength=min_len/10, maxLineGap=40)
+    # 2. 중심선 추출 (벽체로 의심되는 긴 선만 필터링)
+    # threshold를 높여서 확실한 선만 잡고, minLineLength로 치수선을 걸러냅니다.
+    lines = cv2.HoughLinesP(thresh, 1, np.pi/180, threshold=150, minLineLength=250, maxLineGap=50)
 
+    if st.button("🚀 정밀 중심선/벽체 DXF 생성"):
         doc = ezdxf.new('R2010')
         msp = doc.modelspace()
-        doc.layers.new('CENTER_LINE', dxfattribs={'color': 1}) # 빨간색 중심선
+        doc.layers.new('CENTER', dxfattribs={'color': 1}) # 빨간색 중심선
+        doc.layers.new('WALL', dxfattribs={'color': 7})   # 흰색 벽체선
 
         h_img, w_img = gray.shape
-        w_real, h_real = 12000, 9000 # 연습.jpg 기준 전체 치수
+        w_real, h_real = 12000, 9000 # 연습.jpg 스케일 기준
 
         if lines is not None:
-            count = 0
             for line in lines:
                 x1, y1, x2, y2 = line[0]
-                
-                # 픽셀 좌표 -> 실제 mm 좌표 변환
-                sx, ex = (x1 / w_img) * w_real, (x2 / w_img) * w_real
-                sy, ey = (1 - y1 / h_img) * h_real, (1 - y2 / h_img) * h_real
-                
-                # 삐뚤어진 선 보정 (수직/수평 최적화)
-                if abs(sx - ex) < 150: ex = sx # 수직 보정
-                if abs(sy - ey) < 150: ey = sy # 수평 보정
+                sx, ex = (x1/w_img)*w_real, (x2/w_img)*w_real
+                sy, ey = (1-y1/h_img)*h_real, (1-y2/h_img)*h_real
 
-                msp.add_line((sx, sy), (ex, ey), dxfattribs={'layer': 'CENTER_LINE'})
-                count += 1
-            
-            st.success(f"총 {count}개의 정제된 중심선을 추출했습니다!")
-            
+                # [핵심] 수평/수직 보정 및 대각선(치수선 등) 제거
+                is_h = abs(sy - ey) < 150 # 수평선 판단
+                is_v = abs(sx - ex) < 150 # 수직선 판단
+
+                if is_h or is_v:
+                    if is_h: ey = sy # 완전한 수평으로 강제 보정
+                    if is_v: ex = sx # 완전한 수직으로 강제 보정
+                    
+                    # 1. 빨간색 중심선 그리기
+                    msp.add_line((sx, sy), (ex, ey), dxfattribs={'layer': 'CENTER'})
+                    
+                    # 2. 중심선 기반 벽체선 생성 (Offset)
+                    d = wall_t / 2
+                    if is_h:
+                        msp.add_line((sx, sy+d), (ex, ey+d), dxfattribs={'layer': 'WALL'})
+                        msp.add_line((sx, sy-d), (ex, ey-d), dxfattribs={'layer': 'WALL'})
+                    else:
+                        msp.add_line((sx+d, sy), (ex+d, ey), dxfattribs={'layer': 'WALL'})
+                        msp.add_line((sx-d, sy), (ex-d, ey), dxfattribs={'layer': 'WALL'})
+
+            st.success("치수선을 제외한 주요 중심선과 벽체가 생성되었습니다.")
             out = io.StringIO()
             doc.write(out)
-            st.download_button("📥 중심선 DXF 다운로드", out.getvalue(), "center_lines.dxf")
+            st.download_button("📥 정제된 DXF 다운로드", out.getvalue(), "architect_final.dxf")
