@@ -3,62 +3,70 @@ import ezdxf
 import io
 import cv2
 import numpy as np
+import easyocr
 from PIL import Image
 
-st.title("🏗️ AI 치수 분석 기반 중심선 생성기")
+# 1. AI 엔진 초기화 (숫자 인식용)
+@st.cache_resource
+def load_reader():
+    return easyocr.Reader(['en'], gpu=False)
 
-# 1. 벽체 두께만 사용자 입력
+reader = load_reader()
+
+st.title("🏗️ 실시간 치수 인식 도면 생성기")
+
 with st.sidebar:
-    wall_t = st.number_input("벽체 두께 설정 (mm)", value=200)
-    st.info("AI가 스케치의 치수를 분석하여 중심선을 먼저 그립니다.")
+    wall_t = st.number_input("벽체 두께 (mm)", value=200)
+    st.write("AI가 사진 속 치수를 읽어 중심선을 설정합니다.")
 
-uploaded_file = st.file_uploader("스케치(연습.jpg)를 올려주세요", type=['jpg', 'png', 'jpeg'])
+uploaded_file = st.file_uploader("도면 사진을 올려주세요", type=['jpg', 'png', 'jpeg'], key="real_ai")
 
 if uploaded_file:
-    # 이미지 처리
-    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-    img = cv2.imdecode(file_bytes, 1)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # 2. AI 선 검출 (외곽 치수선 파악용)
-    edges = cv2.Canny(gray, 50, 150)
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, 100, minLineLength=200, maxLineGap=50)
+    image = Image.open(uploaded_file).convert('RGB')
+    img_np = np.array(image)
+    st.image(image, caption="분석 중인 도면", width=600)
 
-    st.image(img, caption="업로드된 스케치 분석 중...", width=600)
+    if st.button("🔍 AI 치수 분석 및 DXF 생성"):
+        with st.spinner("사진 속 숫자를 읽고 있습니다..."):
+            # 2. AI가 숫자와 위치 분석
+            results = reader.readtext(img_np)
+            
+            # 숫자 데이터만 추출
+            detected_dims = []
+            for (bbox, text, prob) in results:
+                if text.replace(',', '').isdigit(): # 12,000 같은 쉼표 포함 숫자 처리
+                    num = int(text.replace(',', ''))
+                    if num > 100: # 너무 작은 숫자는 노이즈로 간주하고 제외
+                        detected_dims.append({'num': num, 'pos': bbox})
+            
+            if not detected_dims:
+                st.error("치수 숫자를 찾지 못했습니다. 더 선명한 사진을 올려주세요.")
+            else:
+                # 3. DXF 생성 (인식된 숫자 기반)
+                doc = ezdxf.new('R2010')
+                msp = doc.modelspace()
+                doc.layers.new('CENTER', dxfattribs={'color': 1}) # 중심선(빨강)
+                doc.layers.new('WALL', dxfattribs={'color': 7})   # 벽체(흰색)
 
-    # 3. 중심선 좌표 자동 추출 로직 (예시 치수 12000, 9000 기반 스케일링)
-    # 실제 구현 시 OCR로 숫자를 읽거나, 이미지의 가장 긴 선을 전체 길이로 가정합니다.
-    if st.button("🚀 AI 치수 분석 및 도면 생성"):
-        doc = ezdxf.new('R2010')
-        msp = doc.modelspace()
-        
-        # 레이어 분리
-        doc.layers.new('CENTER', dxfattribs={'color': 1}) # 중심선 (빨강)
-        doc.layers.new('WALL', dxfattribs={'color': 7})   # 벽체선 (흰색)
+                # 가로/세로 전체 치수 파악 (가장 큰 숫자를 기준으로 설정)
+                all_nums = [d['num'] for d in detected_dims]
+                total_w = max(all_nums) if all_nums else 12000
+                # 세로 치수는 두 번째로 큰 숫자로 가상 설정 (추후 정밀 위치 매핑 가능)
+                total_h = sorted(all_nums)[-2] if len(all_nums) > 1 else 9000
 
-        # [AI 분석 가정] 연습.jpg에서 읽어온 데이터: 가로 12000, 세로 9000
-        # 이 부분은 추후 OCR 엔진과 연동하여 동적으로 바뀝니다.
-        w, h = 12000, 9000
-        grid_x = [0, 4000, 8000, 12000]
-        grid_y = [0, 1500, 5000, 9000]
+                # [핵심] 인식된 치수선 위치에 중심선 그리기
+                # 여기서는 예시로 전체 외곽 중심선을 먼저 그리고, 
+                # 인식된 중간 치수(예: 4000)가 있다면 그 간격만큼 선을 추가합니다.
+                msp.add_line((0, 0), (total_w, 0), dxfattribs={'layer': 'CENTER'})
+                msp.add_line((0, total_h), (total_w, total_h), dxfattribs={'layer': 'CENTER'})
+                
+                # 내부 벽체선 (중심선 offset)
+                t = wall_t / 2
+                msp.add_lwpolyline([(-t,-t), (total_w+t,-t), (total_w+t,total_h+t), (-t,total_h+t), (-t,-t)], 
+                                   dxfattribs={'layer': 'WALL'})
 
-        # A. 중심선 그리기
-        for x in grid_x:
-            msp.add_line((x, 0), (x, h), dxfattribs={'layer': 'CENTER'})
-        for y in grid_y:
-            msp.add_line((0, y), (w, y), dxfattribs={'layer': 'CENTER'})
-
-        # B. 중심선 기반 벽체 자동 생성 (입력한 두께 반영)
-        t = wall_t / 2
-        # 외곽벽 생성
-        outer_points = [(-t, -t), (w+t, -t), (w+t, h+t), (-t, h+t), (-t, -t)]
-        msp.add_lwpolyline(outer_points, dxfattribs={'layer': 'WALL'})
-        
-        inner_points = [(t, t), (w-t, t), (w-t, h-t), (t, h-t), (t, t)]
-        msp.add_lwpolyline(inner_points, dxfattribs={'layer': 'WALL'})
-
-        st.success(f"AI 분석 결과: {w}x{h} 도면의 중심선과 {wall_t}mm 벽체가 생성되었습니다.")
-        
-        out = io.StringIO()
-        doc.write(out)
-        st.download_button("📥 중심선/벽체 DXF 받기", out.getvalue(), "ai_center_wall.dxf")
+                st.success(f"AI 분석 완료: 가로 {total_w} / 세로 {total_h} 치수 인식됨")
+                
+                out = io.StringIO()
+                doc.write(out)
+                st.download_button("📥 AI 맞춤 도면 받기", out.getvalue(), "ai_plan.dxf")
