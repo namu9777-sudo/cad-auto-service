@@ -5,48 +5,54 @@ import cv2
 import numpy as np
 from PIL import Image
 
-st.set_page_config(page_title="건축가 AI 실시간 변환기", layout="centered")
-st.title("🏗️ 실시간 도면 자동 분석 서비스")
+st.title("🏗️ 도면 정밀 벡터 변환 서비스")
 
-# [1] 사진 올리기 (업로드할 때마다 아래 코드가 새로 실행됩니다)
-uploaded_file = st.file_uploader("새로운 스케치 사진을 선택하세요", type=['jpg', 'jpeg', 'png'], key="architect_upload")
+uploaded_file = st.file_uploader("도면 사진(1.jpg 등)을 올려주세요", type=['jpg', 'png', 'jpeg'], key="final_fix")
 
 if uploaded_file:
-    # 이미지 로드 및 화면 표시
-    image = Image.open(uploaded_file).convert('RGB')
-    img_np = np.array(image)
-    st.image(image, caption="현재 업로드된 도면", width=500)
+    # 1. 이미지 읽기 및 전처리
+    file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
+    img = cv2.imdecode(file_bytes, 1)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # [핵심] 1.jpg 같은 복잡한 도면을 위한 이진화 처리
+    thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)[1]
+    
+    # 2. 선 검출 (HoughLinesP) - 가짜 사각형 방지 로직
+    # 이미지 내의 모든 선을 찾습니다.
+    lines = cv2.HoughLinesP(thresh, 1, np.pi/180, threshold=50, minLineLength=30, maxLineGap=10)
+    
+    st.subheader("🔍 AI가 이미지에서 추출한 선 가이드")
+    # 분석된 선을 화면에 미리 보여줍니다.
+    edge_view = cv2.Canny(gray, 50, 150)
+    st.image(edge_view, width=700)
 
-    # [2] AI 선 검출 (이미지 분석)
-    st.subheader("🔍 AI 벽체 라인 추출 결과")
-    gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
-    edges = cv2.Canny(gray, 50, 150) # 선을 찾아내는 AI 알고리즘
-    st.image(edges, caption="분석된 벽체 구조 (화이트 라인)", width=500)
+    # 3. 실스케일 설정
+    col1, col2 = st.columns(2)
+    with col1: w_real = st.number_input("도면의 실제 가로길이 (mm)", value=20400) # 1.jpg 기준
+    with col2: h_real = st.number_input("도면의 실제 세로길이 (mm)", value=13350)
 
-    # [3] 치수 및 벽 두께 설정
-    st.divider()
-    col1, col2, col3 = st.columns(3)
-    with col1: w = st.number_input("가로 치수(mm)", value=12000)
-    with col2: h = st.number_input("세로 치수(mm)", value=9000)
-    with col3: t = st.selectbox("벽 두께", [100, 150, 200], index=1)
-
-    # [4] 캐드 파일 생성
-    if st.button("🚀 분석된 구조로 DXF 생성"):
+    if st.button("🚀 위 선들을 DXF로 변환하기"):
         doc = ezdxf.new('R2010')
         msp = doc.modelspace()
+        h_img, w_img = gray.shape
         
-        # 실제 벽체 생성 (레이어 구분)
-        doc.layers.new('WALL', dxfattribs={'color': 7})
-        
-        # 외곽 및 내부 칸막이 자동 배치 (스케치 비율에 맞게 생성)
-        msp.add_line((0,0), (w,0)); msp.add_line((w,0), (w,h))
-        msp.add_line((w,h), (0,h)); msp.add_line((0,h), (0,0))
-        
-        # 스케치에서 읽어온 선들을 기반으로 내부 벽 추가 (예시)
-        msp.add_line((w/3, 0), (w/3, h), dxfattribs={'layer': 'WALL'})
-        msp.add_line((w*2/3, 0), (w*2/3, h), dxfattribs={'layer': 'WALL'})
-
-        out = io.StringIO()
-        doc.write(out)
-        st.download_button("📥 최종 DXF 도면 받기", out.getvalue(), "converted_plan.dxf")
-        st.balloons()
+        if lines is not None:
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                
+                # 픽셀 좌표를 mm 좌표로 정밀 환산
+                sx = (x1 / w_img) * w_real
+                ex = (x2 / w_img) * w_real
+                sy = (1 - (y1 / h_img)) * h_real
+                ey = (1 - (y2 / h_img)) * h_real
+                
+                msp.add_line((sx, sy), (ex, ey))
+            
+            st.success(f"이미지에서 {len(lines)}개의 도면 요소를 성공적으로 추출했습니다!")
+            
+            out = io.StringIO()
+            doc.write(out)
+            st.download_button("📥 변환된 DXF 받기", out.getvalue(), "converted_plan.dxf")
+        else:
+            st.error("이미지에서 선을 찾지 못했습니다. 화질을 확인해주세요.")
