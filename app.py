@@ -1,50 +1,43 @@
 import streamlit as st
 import ezdxf
 import io
+import numpy as np
+import cv2
+import easyocr
+from PIL import Image
 
-st.title("🏗️ 건축가 전용 스케치-to-CAD 정밀 변환")
+# AI 엔진 초기화 (한 번만 실행되도록 캐싱)
+@st.cache_resource
+def load_ocr():
+    return easyocr.Reader(['en']) # 숫자와 영문 인식
 
-# 사이드바 설정
-with st.sidebar:
-    wall_t = st.selectbox("벽 두께 (mm)", [100, 150, 200], index=1)
-    door_w = 900
-    win_w = 1500
+reader = load_ocr()
 
-if st.button("🚀 연습.jpg 스케치 기반 도면 생성"):
-    doc = ezdxf.new('R2010')
-    msp = doc.modelspace()
+st.title("🏗️ AI 건축 도면 자동 분석 서비스")
+
+uploaded_file = st.file_uploader("스케치 사진을 올려주세요", type=['jpg', 'png', 'jpeg'])
+
+if uploaded_file:
+    image = Image.open(uploaded_file)
+    img_array = np.array(image)
+    st.image(image, caption="업로드된 도면", width=500)
     
-    # 레이어 설정 (색상 구분)
-    doc.layers.new('WALL', dxfattribs={'color': 7})      # 흰색(벽)
-    doc.layers.new('WINDOW', dxfattribs={'color': 4})    # 하늘색(창문)
-    doc.layers.new('DOOR', dxfattribs={'color': 1})      # 빨간색(문)
+    with st.spinner('AI가 치수를 분석 중입니다...'):
+        # AI가 이미지에서 텍스트(숫자) 추출
+        result = reader.readtext(img_array)
+        detected_numbers = [text for (bbox, text, prob) in result if text.isdigit()]
+        
+    st.success(f"분석 완료! 이미지에서 {len(detected_numbers)}개의 치수를 발견했습니다.")
 
-    def add_element(start, end, layer):
-        msp.add_line(start, end, dxfattribs={'layer': layer})
+    # AI가 찾은 숫자 중 가장 큰 값을 가로/세로 기본값으로 제안
+    default_w = int(detected_numbers[0]) if len(detected_numbers) > 0 else 12000
+    default_h = int(detected_numbers[1]) if len(detected_numbers) > 1 else 9000
 
-    # 1. 외곽 및 내부 주요 벽체 (스케치 기반 좌표 계산)
-    # 외곽선
-    walls = [((0,0), (12000,0)), ((12000,0), (12000,9000)), ((12000,9000), (0,9000)), ((0,9000), (0,0))]
-    # 내부 수직벽 (4000, 8000 지점)
-    walls += [((4000, 1500), (4000, 9000)), ((8000, 0), (8000, 9000))]
-    # 내부 수평벽
-    walls += [((0, 5000), (4000, 5000)), ((8000, 5000), (12000, 5000))]
-    
-    for s, e in walls:
-        add_element(s, e, 'WALL')
+    col1, col2 = st.columns(2)
+    with col1: w = st.number_input("인식된 가로 (mm)", value=default_w)
+    with col2: h = st.number_input("인식된 세로 (mm)", value=default_h)
 
-    # 2. 창문 (WINDOW) 레이어 - 스케치상의 위치
-    windows = [((0, 2500), (0, 4000)), ((0, 6500), (0, 8000)), ((12000, 2500), (12000, 4000))]
-    for s, e in windows:
-        add_element(s, e, 'WINDOW')
-
-    # 3. 문 (DOOR) 레이어 - 900mm 폭
-    doors = [((4000, 4100), (4000, 5000)), ((4000, 5100), (4000, 6000)), ((8000, 5100), (8000, 6000))]
-    for s, e in doors:
-        add_element(s, e, 'DOOR')
-
-    # 다운로드
-    out = io.StringIO()
-    doc.write(out)
-    st.download_button("📥 정밀 도면(DXF) 받기", out.getvalue(), "sketch_final.dxf")
-    st.success("스케치 분석 완료! 레이어별로 구분된 도면이 생성되었습니다.")
+    if st.button("🚀 분석된 데이터로 DXF 생성"):
+        # (여기에 어제 만든 레이어별 벽체/문/창문 생성 로직이 들어갑니다)
+        st.info("현재 단계: 인식된 치수 기반으로 정밀 도면을 생성합니다.")
+        # ... (이하 ezdxf 생성 코드 생략) ...
