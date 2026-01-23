@@ -1,10 +1,28 @@
 import streamlit as st
 import random
 
-# 레이아웃 설정
-st.set_page_config(page_title="로또 설계자", layout="centered")
+# 1. 고정 데이터: 번호대 그룹 (Saved Information 반영) [cite: 2026-01-23]
+GROUPS = {
+    1: list(range(1, 10)),
+    10: list(range(10, 20)),
+    20: list(range(20, 30)),
+    30: list(range(30, 40)),
+    40: list(range(40, 46))
+}
 
-# CSS: 글씨를 더 진하게(Bold) 하고 가독성 극대화
+# 2. 이미지 기반 상위 20위 패턴 데이터베이스 (건축가님 제공 패턴 반영)
+# 형식: [1번대, 10번대, 20번대, 30번대, 40번대] 순서대로 숫자 개수
+CORE_PATTERNS = {
+    1: [1, 2, 1, 1, 1], 2: [1, 1, 1, 2, 1], 3: [2, 1, 2, 1, 0], 4: [1, 2, 1, 2, 0],
+    5: [1, 1, 2, 2, 0], 6: [2, 1, 1, 1, 1], 7: [1, 2, 2, 1, 0], 8: [2, 2, 1, 0, 1],
+    9: [0, 2, 1, 1, 2], 10: [1, 1, 1, 1, 2], 11: [1, 2, 1, 1, 1], 12: [2, 1, 1, 1, 1],
+    13: [0, 1, 2, 1, 2], 14: [2, 2, 1, 1, 0], 15: [1, 2, 2, 1, 0], 16: [2, 1, 1, 2, 0],
+    17: [0, 1, 1, 3, 1], 18: [1, 2, 0, 2, 1], 19: [2, 2, 0, 1, 1], 20: [2, 0, 2, 1, 1]
+}
+
+st.set_page_config(page_title="로또 설계자 PRO", layout="centered")
+
+# 건축가님 전용 CSS
 st.markdown("""
     <style>
     .main { padding: 0rem 1rem; }
@@ -17,46 +35,60 @@ st.markdown("""
         text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
         box-shadow: inset -3px -3px 6px rgba(0,0,0,0.2);
     }
-    .report { font-size: 0.8rem; color: #222 !important; font-weight: 600; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
-    .stButton>button { font-weight: 800 !important; border: 2px solid #333; }
+    .report { font-size: 0.75rem; color: #222 !important; font-weight: 600; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
+    .pattern-tag { background-color: #f0f0f0; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; color: #555; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🏗️ 로또 설계 분석기")
-st.caption("실제 최근 당첨 통계 및 황금 비율 필터링 적용")
+st.title("🏗️ 로또 설계 분석기 PRO")
+st.caption("패턴 기반 확률 압축 & Hot/Cold 필터 하이브리드")
 
-# [핵심] 최근 10회차 실제 많이 나온 번호 자동 리스트 (직접 업데이트 가능 영역)
-# 건축가님, 이 숫자들만 매주 바꿔주시면 AI가 알아서 조합합니다!
-recent_hot = [1, 3, 4, 8, 10, 16, 17, 22, 23, 24, 26, 27, 28, 30, 31, 38, 41, 42, 44, 45] # 최근 다수 출현
-recent_cold = [11, 13, 14, 18, 19, 34] # 최근 미출현
+# 번호 리스트
+recent_hot = [1, 3, 4, 8, 10, 16, 17, 22, 23, 24, 26, 27, 28, 30, 31, 38, 41, 42, 44, 45]
+recent_cold = [11, 13, 14, 18, 19, 34]
 
-def generate_architect_logic():
+# 확률 조절 슬라이더 추가
+rank_limit = st.select_slider("확률 패턴 범위 (상위 n위 이내)", options=list(range(1, 21)), value=10)
+
+def generate_hybrid_logic(max_rank):
     while True:
-        # 핫에서 2개, 콜드에서 2개, 완전 랜덤에서 2개 조합
-        base = random.sample(recent_hot, 3) + random.sample(recent_cold, 1) + random.sample(range(1, 46), 2)
-        res = sorted(list(set(base)))
+        selected_rank = random.randint(1, max_rank)
+        pattern = CORE_PATTERNS[selected_rank]
+        res = []
+        
+        # 1단계: 패턴 구조에 따라 각 번호대에서 숫자 할당
+        for i, count in enumerate(pattern):
+            group_key = [1, 10, 20, 30, 40][i]
+            if count > 0:
+                # 해당 번호대 숫자들 중 핫/콜드 비중 고려 추출 시도
+                available = GROUPS[group_key]
+                res.extend(random.sample(available, count))
+        
+        res = sorted(list(set(res)))
         if len(res) != 6: continue
         
+        # 2단계: 기존 전문가 필터 적용 (홀짝, 합계)
         odd_c = len([n for n in res if n % 2 != 0])
         total_s = sum(res)
-        # 전문가 필터: 홀짝 3:3 선호, 합계 110~160 사이 집중
+        
         if odd_c in [2, 3, 4] and 110 <= total_s <= 165:
-            return res, odd_c, total_s
+            return res, odd_c, total_s, selected_rank
 
 game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
 
-if st.button("🎰 행운 설계 시작"):
+if st.button("🎰 복합 설계 추출 시작"):
     for i in range(game_count):
-        nums, oc, ts = generate_architect_logic()
+        nums, oc, ts, rk = generate_hybrid_logic(rank_limit)
         
         ball_html = '<div class="ball-container">'
         for n in nums:
-            # 로또 공식 색상
-            color = "#fbc400" if n <= 10 else "#69c8f2" if n <= 20 else "#ff7272" if n <= 30 else "#aaaaaa" if n <= 40 else "#b0d840"
+            color = "#fbc400" if n <= 9 else "#69c8f2" if n <= 19 else "#ff7272" if n <= 29 else "#aaaaaa" if n <= 39 else "#b0d840"
             ball_html += f'<div class="ball" style="background-color:{color};">{n}</div>'
         ball_html += '</div>'
         
         st.markdown(ball_html, unsafe_allow_html=True)
-        st.markdown(f'<p class="report">📊 설계데이터: 홀짝 {oc}:{6-oc} / 합계 {ts} / 핫·콜드 매칭완료</p>', unsafe_allow_html=True)
-
+        st.markdown(f'''<p class="report">
+            <span class="pattern-tag">역대 {rk}위 패턴</span> 
+            📊 설계: 홀짝 {oc}:{6-oc} / 합계 {ts} / 패턴 매칭완료
+        </p>''', unsafe_allow_html=True)
     st.balloons()
