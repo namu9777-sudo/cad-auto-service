@@ -1,7 +1,7 @@
 import streamlit as st
 import random
 
-# 1. 고정 데이터: 번호대 그룹 (Saved Information 반영) [cite: 2026-01-23]
+# 1. 번호대 그룹 설정 (Saved Information 반영) [cite: 2026-01-23]
 GROUPS = {
     1: list(range(1, 10)),
     10: list(range(10, 20)),
@@ -10,8 +10,7 @@ GROUPS = {
     40: list(range(40, 46))
 }
 
-# 2. 이미지 기반 상위 20위 패턴 데이터베이스 (건축가님 제공 패턴 반영)
-# 형식: [1번대, 10번대, 20번대, 30번대, 40번대] 순서대로 숫자 개수
+# 2. 상위 20위 패턴 데이터
 CORE_PATTERNS = {
     1: [1, 2, 1, 1, 1], 2: [1, 1, 1, 2, 1], 3: [2, 1, 2, 1, 0], 4: [1, 2, 1, 2, 0],
     5: [1, 1, 2, 2, 0], 6: [2, 1, 1, 1, 1], 7: [1, 2, 2, 1, 0], 8: [2, 2, 1, 0, 1],
@@ -22,7 +21,7 @@ CORE_PATTERNS = {
 
 st.set_page_config(page_title="로또 설계자 PRO", layout="centered")
 
-# 건축가님 전용 CSS
+# CSS 유지
 st.markdown("""
     <style>
     .main { padding: 0rem 1rem; }
@@ -41,44 +40,65 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🏗️ 로또 설계 분석기 PRO")
-st.caption("패턴 기반 확률 압축 & Hot/Cold 필터 하이브리드")
 
-# 번호 리스트
+# Hot/Cold 번호 리스트
 recent_hot = [1, 3, 4, 8, 10, 16, 17, 22, 23, 24, 26, 27, 28, 30, 31, 38, 41, 42, 44, 45]
 recent_cold = [11, 13, 14, 18, 19, 34]
 
-# 확률 조절 슬라이더 추가
-rank_limit = st.select_slider("확률 패턴 범위 (상위 n위 이내)", options=list(range(1, 21)), value=10)
+# --- 설정 구역 ---
+with st.expander("⚙️ 정밀 필터 설정", expanded=True):
+    rank_limit = st.select_slider("확률 패턴 범위 (상위 n위 이내)", options=list(range(1, 21)), value=10)
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        hot_count = st.number_input("Hot 번호 포함 개수", 0, 6, 3)
+    with col2:
+        cold_count = st.number_input("Cold 번호 포함 개수", 0, 6, 1)
 
-def generate_hybrid_logic(max_rank):
+def generate_hybrid_logic(max_rank, h_cnt, c_cnt):
+    all_nums = set(range(1, 46))
+    others = list(all_nums - set(recent_hot) - set(recent_cold))
+    
     while True:
-        selected_rank = random.randint(1, max_rank)
-        pattern = CORE_PATTERNS[selected_rank]
-        res = []
+        # 1단계: 번호 소스 구성 (사용자 설정 반영)
+        base_pool = random.sample(recent_hot, h_cnt) + \
+                    random.sample(recent_cold, c_cnt) + \
+                    random.sample(others, 6 - (h_cnt + c_cnt))
         
-        # 1단계: 패턴 구조에 따라 각 번호대에서 숫자 할당
-        for i, count in enumerate(pattern):
-            group_key = [1, 10, 20, 30, 40][i]
-            if count > 0:
-                # 해당 번호대 숫자들 중 핫/콜드 비중 고려 추출 시도
-                available = GROUPS[group_key]
-                res.extend(random.sample(available, count))
-        
-        res = sorted(list(set(res)))
+        res = sorted(list(set(base_pool)))
         if len(res) != 6: continue
         
-        # 2단계: 기존 전문가 필터 적용 (홀짝, 합계)
+        # 2단계: 번호대 패턴 체크
+        current_pattern = [0, 0, 0, 0, 0]
+        for n in res:
+            if n <= 9: current_pattern[0] += 1
+            elif n <= 19: current_pattern[1] += 1
+            elif n <= 29: current_pattern[2] += 1
+            elif n <= 39: current_pattern[3] += 1
+            else: current_pattern[4] += 1
+            
+        # 선택한 순위 범위 내에 이 패턴이 있는지 확인
+        matched_rank = None
+        for rk in range(1, max_rank + 1):
+            if CORE_PATTERNS[rk] == current_pattern:
+                matched_rank = rk
+                break
+        
+        if matched_rank is None: continue
+        
+        # 3단계: 기존 전문가 필터 (홀짝, 합계)
         odd_c = len([n for n in res if n % 2 != 0])
         total_s = sum(res)
         
         if odd_c in [2, 3, 4] and 110 <= total_s <= 165:
-            return res, odd_c, total_s, selected_rank
+            return res, odd_c, total_s, matched_rank
 
+# 생성 UI
 game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
 
 if st.button("🎰 복합 설계 추출 시작"):
     for i in range(game_count):
-        nums, oc, ts, rk = generate_hybrid_logic(rank_limit)
+        nums, oc, ts, rk = generate_hybrid_logic(rank_limit, hot_count, cold_count)
         
         ball_html = '<div class="ball-container">'
         for n in nums:
@@ -87,8 +107,5 @@ if st.button("🎰 복합 설계 추출 시작"):
         ball_html += '</div>'
         
         st.markdown(ball_html, unsafe_allow_html=True)
-        st.markdown(f'''<p class="report">
-            <span class="pattern-tag">역대 {rk}위 패턴</span> 
-            📊 설계: 홀짝 {oc}:{6-oc} / 합계 {ts} / 패턴 매칭완료
-        </p>''', unsafe_allow_html=True)
+        st.markdown(f'<p class="report"><span class="pattern-tag">역대 {rk}위 패턴</span> 📊 설계: 홀짝 {oc}:{6-oc} / 합계 {ts} / Hot {hot_count}·Cold {cold_count}</p>', unsafe_allow_html=True)
     st.balloons()
