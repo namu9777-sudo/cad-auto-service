@@ -1,62 +1,24 @@
 import streamlit as st
-import random
+from streamlit_webrtc import webrtc_streamer
+import av
+import cv2
+import numpy as np
 
-# 레이아웃 설정
-st.set_page_config(page_title="로또 설계자", layout="centered")
+st.title("📐 ArchEye: Live Vision")
+st.write("Point your camera at a building to see its **Structural Soul**.")
 
-# CSS: 글씨를 더 진하게(Bold) 하고 가독성 극대화
-st.markdown("""
-    <style>
-    .main { padding: 0rem 1rem; }
-    h1 { font-size: 1.5rem !important; color: #111 !important; font-weight: 800 !important; }
-    .ball-container { display: flex; justify-content: space-between; margin: 12px 0; max-width: 320px; }
-    .ball { 
-        width: 38px; height: 38px; border-radius: 50%; 
-        display: flex; align-items: center; justify-content: center; 
-        color: white !important; font-weight: 900 !important; font-size: 15px !important;
-        text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
-        box-shadow: inset -3px -3px 6px rgba(0,0,0,0.2);
-    }
-    .report { font-size: 0.8rem; color: #222 !important; font-weight: 600; margin-bottom: 15px; border-bottom: 2px solid #eee; padding-bottom: 5px; }
-    .stButton>button { font-weight: 800 !important; border: 2px solid #333; }
-    </style>
-    """, unsafe_allow_html=True)
+def video_frame_callback(frame):
+    img = frame.to_ndarray(format="bgr24")
 
-st.title("🏗️ 로또 설계 분석기")
-st.caption("실제 최근 당첨 통계 및 황금 비율 필터링 적용")
+    # 1. 건물의 선 추출 (Edge Detection)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 100, 200) # 수치는 현장 광량에 따라 조절
+    
+    # 2. 선을 흰색으로 강조하고 원본과 합성
+    edges_colored = cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    output = cv2.addWeighted(img, 0.7, edges_colored, 0.3, 0)
 
-# [핵심] 최근 10회차 실제 많이 나온 번호 자동 리스트 (직접 업데이트 가능 영역)
-# 건축가님, 이 숫자들만 매주 바꿔주시면 AI가 알아서 조합합니다!
-recent_hot = [1, 3, 4, 8, 10, 16, 17, 22, 23, 24, 26, 27, 30, 31, 38, 41, 42, 44, 45] # 최근 다수 출현
-recent_cold = [11, 13, 14, 15, 19, 34] # 최근 미출현
+    return av.VideoFrame.from_ndarray(output, format="bgr24")
 
-def generate_architect_logic():
-    while True:
-        # 핫에서 3개, 콜드에서 1개, 완전 랜덤에서 2개 조합
-        base = random.sample(recent_hot, 3) + random.sample(recent_cold, 1) + random.sample(range(1, 46), 2)
-        res = sorted(list(set(base)))
-        if len(res) != 6: continue
-        
-        odd_c = len([n for n in res if n % 2 != 0])
-        total_s = sum(res)
-        # 전문가 필터: 홀짝 3:3 선호, 합계 110~160 사이 집중
-        if odd_c in [2, 3, 4] and 110 <= total_s <= 165:
-            return res, odd_c, total_s
-
-game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
-
-if st.button("🎰 행운의 인생 설계 시작"):
-    for i in range(game_count):
-        nums, oc, ts = generate_architect_logic()
-        
-        ball_html = '<div class="ball-container">'
-        for n in nums:
-            # 로또 공식 색상
-            color = "#fbc400" if n <= 10 else "#69c8f2" if n <= 20 else "#ff7272" if n <= 30 else "#aaaaaa" if n <= 40 else "#b0d840"
-            ball_html += f'<div class="ball" style="background-color:{color};">{n}</div>'
-        ball_html += '</div>'
-        
-        st.markdown(ball_html, unsafe_allow_html=True)
-        st.markdown(f'<p class="report">📊 설계데이터: 홀짝 {oc}:{6-oc} / 합계 {ts} / 핫·콜드 매칭완료</p>', unsafe_allow_html=True)
-
-    st.balloons()
+# 실시간 스트리밍 시작
+webrtc_streamer(key="archeye-live", video_frame_callback=video_frame_callback)
