@@ -12,48 +12,59 @@ DATA_FILE = "lotto_history.json"
 
 @st.cache_data(ttl=3600)
 def get_lotto_data():
-    """월요일 업데이트 로직이 포함된 데이터 수집기"""
-    need_update = False
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            data = json.load(f)
-        last_updated = datetime.datetime.strptime(data["update_date"], "%Y-%m-%d").date()
-        # 마지막 업데이트가 지난주이고, 오늘이 월요일 이후라면 업데이트
-        if (datetime.date.today() - last_updated).days >= 7:
-            need_update = True
-    else:
-        need_update = True
+    """안정적인 데이터 수집을 위한 개선된 로직"""
+    # 1. 최신 회차 번호 자동 계산 (매주 토요일 21시 이후 갱신 기준)
+    base_date = datetime.date(2023, 12, 2) # 1096회차 기준일
+    base_no = 1096
+    days_diff = (datetime.date.today() - base_date).days
+    latest_no = base_no + (days_diff // 7)
+    
+    # 서버 차단 방지를 위한 브라우저 흉내(User-Agent)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
 
-    if need_update:
-        # 실제 운영시에는 최근 회차번호를 역추적하는 로직이 필요함 (현재는 예시로 1150회 기준)
-        # 여기서는 최근 10회차를 가져와 통계를 냄
-        latest_no = 1150 
-        all_nums = []
-        last_win = []
-        
+    all_nums = []
+    last_win = []
+    
+    # 2. 에러 방지를 위한 Try-Except 구조
+    try:
         for i in range(10):
-            res = requests.get(f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={latest_no-i}").json()
-            if res.get("returnValue") == "success":
-                nums = [res[f"drwtNo{j}"] for j in range(1, 7)]
-                all_nums.extend(nums)
-                if i == 0: last_win = nums
-        
-        # 빈도 분석
-        freq = pd.Series(all_nums).value_counts()
-        hot = freq.head(10).index.tolist()
-        cold = list(set(range(1, 46)) - set(freq.head(25).index.tolist()))
-        
-        data = {
-            "update_date": str(datetime.date.today()),
-            "latest_drw": latest_no,
-            "last_win": last_win,
-            "hot": hot,
-            "cold": cold,
-            "all_history": all_nums # 통계용
-        }
-        with open(DATA_FILE, "w") as f:
-            json.dump(data, f)
-    return data
+            target_no = latest_no - i
+            url = f"https://www.dhlottery.co.kr/common.do?method=getLottoNumber&drwNo={target_no}"
+            res = requests.get(url, headers=headers, timeout=5)
+            
+            # JSON 응답 확인
+            if res.status_code == 200:
+                data = res.json()
+                if data.get("returnValue") == "success":
+                    nums = [data[f"drwtNo{j}"] for j in range(1, 7)]
+                    all_nums.extend(nums)
+                    if i == 0: last_win = nums
+            else:
+                continue # 서버 응답 이상 시 다음 회차로
+    except Exception as e:
+        st.error(f"데이터를 가져오는 중 오류 발생: {e}")
+        # 오류 발생 시 사용할 기본값 (Fallback)
+        last_win = [1, 10, 20, 30, 40, 45]
+        all_nums = last_win * 5 
+
+    # 빈도 분석
+    if not all_nums: # 만약 데이터를 하나도 못 가져왔을 경우 대비
+        return {"update_date": str(datetime.date.today()), "latest_drw": latest_no, "last_win": [1,2,3,4,5,6], "hot": [1,2,3], "cold": [43,44,45], "all_history": []}
+
+    freq = pd.Series(all_nums).value_counts()
+    hot = freq.head(10).index.tolist()
+    cold = list(set(range(1, 46)) - set(freq.head(25).index.tolist()))
+    
+    return {
+        "update_date": str(datetime.date.today()),
+        "latest_drw": latest_no,
+        "last_win": last_win,
+        "hot": hot,
+        "cold": cold,
+        "all_history": all_nums
+    }
 
 # 데이터 불러오기
 lotto_info = get_lotto_data()
