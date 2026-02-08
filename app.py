@@ -1,9 +1,15 @@
 import streamlit as st
 import random
-import pandas as pd
-import datetime
 
-# --- 1. 상수 및 패턴 데이터 (사용자 제공 로직 유지) ---
+# --- [사용자 원본 로직: 그룹 및 패턴 설정] ---
+GROUPS = {
+    1: list(range(1, 10)),
+    10: list(range(10, 20)),
+    20: list(range(20, 30)),
+    30: list(range(30, 40)),
+    40: list(range(40, 46))
+}
+
 CORE_PATTERNS = {
     1: [1, 2, 1, 1, 1], 2: [1, 1, 1, 2, 1], 3: [2, 1, 2, 1, 0], 4: [1, 2, 1, 2, 0],
     5: [1, 1, 2, 2, 0], 6: [2, 1, 1, 1, 1], 7: [1, 2, 2, 1, 0], 8: [2, 2, 1, 0, 1],
@@ -12,63 +18,57 @@ CORE_PATTERNS = {
     17: [0, 1, 1, 3, 1], 18: [1, 2, 0, 2, 1], 19: [2, 2, 0, 1, 1], 20: [2, 0, 2, 1, 1]
 }
 
-# --- 2. 스타일링 ---
+# --- [UI 디자인 설정] ---
 st.set_page_config(page_title="로또 설계자 PRO", layout="centered")
 st.markdown("""
     <style>
-    .ball-container { display: flex; justify-content: center; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+    .ball-container { display: flex; justify-content: center; gap: 10px; margin: 15px 0; }
     .ball { 
-        width: 36px; height: 36px; border-radius: 50%; display: flex; 
-        align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px;
+        width: 40px; height: 40px; border-radius: 50%; display: flex; 
+        align-items: center; justify-content: center; color: white; font-weight: bold; 
+        box-shadow: 2px 2px 5px rgba(0,0,0,0.2);
     }
-    .report-card { background: #f9f9f9; padding: 12px; border-radius: 8px; border-left: 5px solid #007bff; margin-bottom: 15px; }
+    .result-card { background: #f8f9fa; padding: 15px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #007bff; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 3. 메인 화면 및 수동 입력 설정 ---
-st.title("🎰 AI 복합 설계 생성기")
-st.info("💡 API 장애를 방지하기 위해 분석하신 Hot/Cold 번호를 직접 입력하는 모드입니다.")
+st.title("🎰 AI 로또 복합 설계 생성기")
 
-with st.expander("📝 분석 번호 직접 입력 (수동 설정)", expanded=True):
-    col_input1, col_input2 = st.columns(2)
-    with col_input1:
-        # 쉼표로 구분하여 번호 입력
-        hot_input = st.text_input("🔥 Hot 번호 (쉼표로 구분)", value="1, 10, 14, 25, 31, 38, 45")
-        hot_list = [int(x.strip()) for x in hot_input.split(",") if x.strip().isdigit()]
-    with col_input2:
-        cold_input = st.text_input("❄️ Cold 번호 (쉼표로 구분)", value="3, 5, 9, 22, 41")
-        cold_list = [int(x.strip()) for x in cold_input.split(",") if x.strip().isdigit()]
-
-with st.expander("⚙️ 설계 세부 설정", expanded=False):
-    game_count = st.select_slider("생성할 게임 수", options=[1, 3, 5], value=3)
-    rank_limit = st.slider("확률 패턴 범위 (상위 n위)", 1, 20, 10)
-    h_include = st.number_input("조합당 Hot 번호 포함 개수", 0, 4, 2)
-    c_include = st.number_input("조합당 Cold 번호 포함 개수", 0, 4, 1)
-
-# --- 4. 번호 생성 로직 ---
-def generate_lotto_manual():
-    # 입력된 번호 외 나머지를 일반 번호로 채움
-    all_selected = set(hot_list + cold_list)
-    others = [n for n in range(1, 46) if n not in all_selected]
+# --- [사용자 입력 섹션] ---
+with st.sidebar:
+    st.header("⚙️ 분석 설정")
+    hot_numbers = st.text_input("🔥 Hot 번호 (쉼표 구분)", "1, 2, 3, 10, 17, 20, 22, 24, 26, 27, 30, 35, 36, 37, 38, 39, 42, 45")
+    cold_numbers = st.text_input("❄️ Cold 번호 (쉼표 구분)", "11, 13, 14, 15, 19, 34, 43")
     
-    # 안전장치: 입력된 번호가 부족할 경우 에러 방지
-    if len(hot_list) < h_include or len(cold_list) < c_include:
-        return None, "입력된 Hot/Cold 번호 개수가 설정보다 적습니다."
+    game_count = st.selectbox("생성할 게임 수", [1, 3, 5, 10], index=1)
+    rank_limit = st.slider("패턴 신뢰도 범위 (상위 n위)", 1, 20, 10)
+    
+    hot_include = st.number_input("조합당 Hot 개수", 0, 6, 3)
+    cold_include = st.number_input("조합당 Cold 개수", 0, 6, 1)
 
-    for _ in range(2000): # 패턴 매칭을 위한 반복 시도
+# 리스트 변환
+hot_list = [int(x.strip()) for x in hot_numbers.split(",") if x.strip().isdigit()]
+cold_list = [int(x.strip()) for x in cold_numbers.split(",") if x.strip().isdigit()]
+
+# --- [핵심 생성 로직] ---
+def generate_games():
+    others = list(set(range(1, 46)) - set(hot_list) - set(cold_list))
+    
+    results = []
+    attempts = 0
+    
+    while len(results) < game_count and attempts < 3000:
+        attempts += 1
         try:
-            # Hot/Cold/Others에서 각각 추출
-            s_hot = random.sample(hot_list, h_include)
-            s_cold = random.sample(cold_list, c_include)
-            s_others = random.sample(others, 6 - h_include - c_include)
+            # Hot/Cold/Others 믹스
+            sample = random.sample(hot_list, hot_include) + \
+                     random.sample(cold_list, cold_include) + \
+                     random.sample(others, 6 - hot_include - cold_include)
             
-            res = sorted(s_hot + s_cold + s_others)
+            res = sorted(list(set(sample)))
+            if len(res) != 6: continue
             
-            # 1. 합계 필터 (100~175)
-            total_s = sum(res)
-            if not (100 <= total_s <= 175): continue
-            
-            # 2. 번호대 패턴 분석
+            # 번호대 패턴 분석
             pattern = [0, 0, 0, 0, 0]
             for n in res:
                 if n <= 9: pattern[0] += 1
@@ -77,33 +77,40 @@ def generate_lotto_manual():
                 elif n <= 39: pattern[3] += 1
                 else: pattern[4] += 1
             
-            # 3. CORE_PATTERNS 매칭
-            rk = next((rk for rk, p in CORE_PATTERNS.items() if p == pattern and rk <= rank_limit), None)
+            # 패턴 매칭
+            match_rk = next((rk for rk, p in CORE_PATTERNS.items() if p == pattern and rk <= rank_limit), None)
             
-            if rk:
-                return res, rk, total_s
-        except Exception:
+            if match_rk:
+                total_s = sum(res)
+                # 최종 필터 (합계 범위 등)
+                if 100 <= total_s <= 175:
+                    results.append({"nums": res, "rank": match_rk, "total": total_s})
+        except:
             continue
-    return None, "설정하신 조건(패턴 순위)에 맞는 조합을 찾지 못했습니다. 범위를 넓혀주세요."
+            
+    return results
 
-# --- 5. 추출 결과 출력 ---
-if st.button("🚀 수동 분석 데이터로 추출 시작", use_container_width=True):
-    success_count = 0
-    for i in range(game_count):
-        nums, rk, ts = generate_lotto_manual()
-        
-        if nums:
+# --- [결과 출력] ---
+if st.button("🚀 번호 생성 시작", use_container_width=True):
+    final_games = generate_games()
+    
+    if final_games:
+        for i, game in enumerate(final_games):
+            st.markdown(f"### 🎮 Game {i+1}")
+            
+            # 공 UI 출력
             ball_html = '<div class="ball-container">'
-            for n in nums:
+            for n in game['nums']:
                 color = "#fbc400" if n <= 9 else "#69c8f2" if n <= 19 else "#ff7272" if n <= 29 else "#aaaaaa" if n <= 39 else "#b0d840"
                 ball_html += f'<div class="ball" style="background-color:{color};">{n}</div>'
             ball_html += '</div>'
             st.markdown(ball_html, unsafe_allow_html=True)
-            st.markdown(f"<div class='report-card'><b>{i+1}번 조합:</b> 패턴 {rk}위 적용 / 합계 {ts}</div>", unsafe_allow_html=True)
-            success_count += 1
-        else:
-            st.warning(rk) # 에러 메시지 출력
-            break
             
-    if success_count > 0:
+            st.markdown(f"""
+            <div class="result-card">
+                <b>분석 결과:</b> 패턴 상위 {game['rank']}위 적용 | <b>번호 합계:</b> {game['total']}
+            </div>
+            """, unsafe_allow_html=True)
         st.balloons()
+    else:
+        st.error("설정하신 조건에 맞는 조합을 찾지 못했습니다. 번호 구성이나 필터를 조정해 주세요.")
