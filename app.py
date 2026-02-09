@@ -57,49 +57,61 @@ with menu[0]:
         sum_range = st.slider("합계 범위 설정", 60, 230, (100, 170))
 
     def generate_lotto(max_rank, h_num, c_num, s_min, s_max):
-        all_nums = set(range(1, 46))
-        others = list(all_nums - set(recent_hot) - set(recent_cold))
+    all_nums = set(range(1, 46))
+    others = list(all_nums - set(recent_hot) - set(recent_cold))
+    
+    attempts = 0
+    while attempts < 2000:  # 홀짝 조건이 추가되었으므로 시도 횟수를 넉넉히 잡습니다.
+        attempts += 1
         
-        attempts = 0
-        while attempts < 1000: # 무한 루프 방지
-            attempts += 1
-            # 소스 조합
-            pool = random.sample(recent_hot, h_num) + \
-                   random.sample(recent_cold, c_num) + \
-                   random.sample(others, 6 - (h_num + c_num))
-            
-            res = sorted(list(set(pool)))
-            if len(res) != 6: continue
-            
-            # 합계 체크 (기능 5)
-            total_s = sum(res)
-            if not (s_min <= total_s <= s_max): continue
-            
-            # 패턴 체크
-            pattern = [0, 0, 0, 0, 0]
-            for n in res:
-                if n <= 9: pattern[0] += 1
-                elif n <= 19: pattern[1] += 1
-                elif n <= 29: pattern[2] += 1
-                elif n <= 39: pattern[3] += 1
-                else: pattern[4] += 1
-            
-            for rk in range(1, max_rank + 1):
-                if CORE_PATTERNS[rk] == pattern:
-                    return res, total_s, rk
-        return None, None, None
+        # 1. 번호 소스 조합 (Hot/Cold/Others)
+        pool = random.sample(recent_hot, h_num) + \
+               random.sample(recent_cold, c_num) + \
+               random.sample(others, 6 - (h_num + c_num))
+        
+        res = sorted(list(set(pool)))
+        if len(res) != 6: continue
+        
+        # 2. 홀짝 갯수 체크 (핵심 추가!)
+        odd_count = len([n for n in res if n % 2 != 0])
+        if odd_count not in [2, 3, 4]: continue # 홀짝 비율이 2:4, 3:3, 4:2 일 때만 통과
+        
+        # 3. 합계 범위 체크 (기능 5)
+        total_s = sum(res)
+        if not (s_min <= total_s <= s_max): continue
+        
+        # 4. 번호대 패턴 체크
+        pattern = [0, 0, 0, 0, 0]
+        for n in res:
+            if n <= 9: pattern[0] += 1
+            elif n <= 19: pattern[1] += 1
+            elif n <= 29: pattern[2] += 1
+            elif n <= 39: pattern[3] += 1
+            else: pattern[4] += 1
+        
+        # 5. 상위 20위 패턴 매칭
+        for rk in range(1, max_rank + 1):
+            if CORE_PATTERNS[rk] == pattern:
+                return res, total_s, rk, odd_count # 홀짝 갯수도 반환
+                
+    return None, None, None, None
 
     if st.button("🎰 복합 설계 추출 시작", use_container_width=True):
         for i in range(game_count):
-            nums, ts, rk = generate_lotto(rank_limit, h_cnt, c_cnt, sum_range[0], sum_range[1])
-            if nums:
+            nums, ts, rk, oc = generate_lotto(rank_limit, h_cnt, c_cnt, sum_range[0], sum_range[1])
+        if nums:
                 ball_html = '<div class="ball-container">'
                 for n in nums:
                     color = "#fbc400" if n <= 9 else "#69c8f2" if n <= 19 else "#ff7272" if n <= 29 else "#aaaaaa" if n <= 39 else "#b0d840"
                     ball_html += f'<div class="ball" style="background-color:{color};">{n}</div>'
                 ball_html += '</div>'
                 st.markdown(ball_html, unsafe_allow_html=True)
-                st.markdown(f'<p class="report"><b>{rk}위 패턴</b> | 합계: {ts} | 필터: H{h_cnt} C{c_cnt}</p>', unsafe_allow_html=True)
+                st.markdown(f'''
+        <p class="report">
+            <b>{rk}위 패턴</b> | 
+            설계: 홀짝 {oc}:{6-oc} / 합계 {ts} | 
+            필터: H{h_cnt} C{c_cnt}
+        </p>''', unsafe_allow_html=True)
         st.balloons()
 
 # --- [TAB 2: 과거 당첨번호 보기] (기능 2) ---
