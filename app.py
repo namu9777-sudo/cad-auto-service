@@ -11,10 +11,10 @@ CORE_PATTERNS = {
     17: [0, 1, 1, 3, 1], 18: [1, 2, 0, 2, 1], 19: [2, 2, 0, 1, 1], 20: [2, 0, 2, 1, 1]
 }
 
-recent_hot = [1, 2, 3, 10, 17, 20, 22, 24, 26, 27, 30, 35, 36, 37, 38, 39, 42, 45]
+recent_hot = [1, 2, 6, 9, 10, 17, 20, 22, 24, 27, 30, 35, 36, 37, 38, 39, 42, 45]
 recent_cold = [11, 13, 14, 15, 19, 34, 43]
 
-st.set_page_config(page_title="로또 설계자 PRO", layout="centered")
+st.set_page_config(page_title="로또 디자이너 PRO", layout="centered")
 
 st.markdown("""
     <style>
@@ -74,7 +74,7 @@ def generate_lotto(max_rank, h_num, c_num, s_min, s_max):
 with menu[0]:
     st.title("🏗️ 로또 설계 분석기")
     
-    with st.expander("⚙️ 정밀 필터 설정 (직접 조절)", expanded=True):
+    with st.expander("⚙️ 정밀 필터 설정", expanded=True):
         rank_limit = st.slider("패턴 범위 (1~20위)", 1, 20, 10)
         game_count = st.select_slider("생성 게임 수", options=[1, 2, 3, 4, 5], value=3)
         
