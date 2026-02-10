@@ -14,7 +14,7 @@ CORE_PATTERNS = {
 recent_hot = [1, 2, 6, 9, 10, 17, 20, 22, 24, 27, 30, 35, 36, 37, 38, 39, 42, 45]
 recent_cold = [11, 13, 14, 15, 19, 34, 43]
 
-st.set_page_config(page_title="로또 디자이너 PRO", layout="centered")
+st.set_page_config(page_title="AI 로또 디자이너", layout="centered")
 
 st.markdown("""
     <style>
@@ -86,7 +86,7 @@ with menu[0]:
             
         sum_range = st.slider("합계 범위 설정", 60, 230, (100, 170))
 
-    if st.button("🎰 복합 설계 추출 시작", use_container_width=True):
+    if st.button("🎰 AI 복합 설계 추출 시작", use_container_width=True):
         for _ in range(game_count):
             nums, ts, rk, oc = generate_lotto(rank_limit, h_cnt, c_cnt, sum_range[0], sum_range[1])
             if nums:
