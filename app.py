@@ -72,7 +72,7 @@ def generate_lotto(max_rank, h_num, c_num, s_min, s_max):
 
 # --- [TAB 1: 번호 생성] ---
 with menu[0]:
-    st.title("🏗️ 로또 설계 분석기")
+    st.title("🏗️ AI 로또 설계 분석기")
     
     with st.expander("⚙️ 정밀 필터 설정", expanded=True):
         rank_limit = st.slider("패턴 범위 (1~20위)", 1, 20, 10)
