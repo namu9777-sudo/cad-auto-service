@@ -12,7 +12,7 @@ CORE_PATTERNS = {
     17: [0, 1, 1, 3, 1], 18: [1, 2, 0, 2, 1], 19: [2, 2, 0, 1, 1], 20: [2, 0, 2, 1, 1]
 }
 
-recent_hot = [1, 2, 3, 10, 17, 20, 22, 24, 26, 27, 30, 35, 36, 37, 38, 39, 42, 45]
+recent_hot = [1, 2, 6, 9, 10, 17, 20, 22, 24, 27, 30, 35, 36, 37, 38, 39, 42, 45]
 recent_cold = [11, 13, 14, 15, 19, 34, 43]
 
 st.set_page_config(page_title="로또 설계자 AI PRO", layout="centered")
@@ -77,7 +77,7 @@ def generate_lotto(max_rank, h_num, c_num, s_min, s_max):
 menu = st.tabs(["🤖 AI 번호 생성", "📜 과거 기록", "📸 QR 확인"])
 
 with menu[0]:
-    st.markdown("### 🏗️ 로또 설계 분석기 AI")
+    st.markdown("### 🏗️ 로또 설계 AI 분석기")
     with st.expander("⚙️ AI 정밀 필터 설정", expanded=True):
         rank_limit = st.slider("분석 패턴 범위 (1~20위)", 1, 20, 10)
         game_count = st.select_slider("생성 게임 수", options=[1, 2, 3, 4, 5], value=3)
@@ -90,7 +90,7 @@ with menu[0]:
         progress_text = st.empty()
         bar = st.progress(0)
         for pct in range(100):
-            time.sleep(0.01) # 연출용 딜레이
+            time.sleep(0.02) # 연출용 딜레이
             bar.progress(pct + 1)
             progress_text.text(f"AI 모델 데이터 학습 중... {pct+1}%")
         progress_text.empty()
