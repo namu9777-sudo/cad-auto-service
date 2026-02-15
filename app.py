@@ -112,7 +112,7 @@ with menu[1]:
     st.subheader("📅 과거 당첨 기록")
     try:
         df = pd.read_csv("lotto_history.csv")
-        st.dataframe(df.head(50), use_container_width=True)
+        st.dataframe(df.head(20000), use_container_width=True)
     except:
         st.info("lotto_history.csv 파일을 업로드해주세요.")
 
